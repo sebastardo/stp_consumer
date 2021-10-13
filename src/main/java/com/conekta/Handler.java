@@ -3,9 +3,15 @@ package com.conekta;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 
+import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.services.s3.model.S3ObjectInputStream;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpPost;
@@ -18,10 +24,7 @@ import org.apache.http.params.HttpParams;
 
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.CertificateException;
@@ -39,16 +42,20 @@ public class Handler implements RequestHandler<Map<String,String[]>, String> {
     private String trusStorePassword = "changeit";
 
 
+
+
     @Override
     public String handleRequest(Map<String,String[]> event, Context context) {
+
         int statusCode;
         String mensaje = "Lambda ejecutado con exito";
 
-
         String[] empresas = event.get("empresas");
+        String[] estados = event.get("estados");
+        String[] fechas = event.get("fechas");
 
         try {
-            statusCode = consultaOrdenes(empresas);
+            statusCode = consultaOrdenes(empresas, estados, fechas);
         } catch (Exception e) {
             e.printStackTrace();
             statusCode = 400;
@@ -57,30 +64,34 @@ public class Handler implements RequestHandler<Map<String,String[]>, String> {
         return "{\n'statusCode': " + statusCode + ",\n'body': json.dumps('" + mensaje +"')\n}";
     }
 
-    private int consultaOrdenes(String[] empresas) throws Exception {
+    private int consultaOrdenes(String[] empresas, String[] estados, String[] fecha) throws Exception {
 
         int status = 200;
         CryptoHandler cryptoHandler = new CryptoHandler();
 
+        int cont = 0;
         for (String emp: empresas) {
-
-            String empresa = emp; //String empresa = "CONEKTA";
-            String estado = "E";
-            Integer fechaOperacion = 20210801;
             JSONObject jsonObject = new JSONObject();
+
+            String empresa = emp;//"CONEKTA";
+            String estado = estados[cont];
             jsonObject.put("empresa", empresa);
             jsonObject.put("estado", estado);
 
-            //jsonObject.put("fechaOperacion", fechaOperacion);
-            //jsonObject.put("firma", cryptoHandler.firmar(empresa, fechaOperacion).replace("\n", ""));
+            if(fecha[cont]!="") {
+                int fechaOperacion = 0;
+                jsonObject.put("fechaOperacion", Integer.parseInt(fecha[cont]));
+                jsonObject.put("firma", cryptoHandler.firmar(empresa, fechaOperacion).replace("\n", ""));
+            } else {
+                jsonObject.put("firma", cryptoHandler.firmar(empresa, null).replace("\n", ""));
+            }
 
-            jsonObject.put("firma", cryptoHandler.firmar(empresa, null).replace("\n", ""));
-            // System.out.println(jsonObject);
             status = HttpClient(jsonObject.toString(), url, emp);
 
             if(status != 200){
                 return status;
             }
+            cont++;
         }
         return status;
     }
@@ -151,6 +162,21 @@ public class Handler implements RequestHandler<Map<String,String[]>, String> {
         return respuesta;
     }
 
+//    private void cargarDeS3() throws IOException {
+//        AmazonS3 s3 = AmazonS3ClientBuilder.standard().build();
+//        S3Object data = s3.getObject("spr-mybucket", "config.json");
+//
+//        S3ObjectInputStream s3Stream = data.getObjectContent();
+//
+//        ObjectMapper objectMapper = new ObjectMapper();
+//        JsonFactory jsonFactory = objectMapper.getFactory();
+//        JsonParser jsonParser = jsonFactory.createParser(s3Stream);
+//
+//
+//    }
+
+
+
     private void guardarEnS3(String body, String empresa){
         /***S3***/
 
@@ -165,9 +191,7 @@ public class Handler implements RequestHandler<Map<String,String[]>, String> {
         meta.setContentType("application/json");
 
         AmazonS3 s3 = AmazonS3ClientBuilder.standard().build();
-
         s3.putObject("spr-mybucket", "stp/"+ nombre_json, json, meta);
-
 
     }
 }
